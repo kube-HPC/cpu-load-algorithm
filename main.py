@@ -71,7 +71,8 @@ def on_reconnect():
 
 
 def on_init(*args):
-    message = args[0]
+    message = args[0].get("data",{})
+    print("message",message)
     try:
         global inputData
         inputData = message["input"][0]
