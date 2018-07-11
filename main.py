@@ -1,15 +1,74 @@
 from multiprocessing import Process
 from concurrent.futures import ThreadPoolExecutor
 import time
+import math
 import os
 import sys
 from socketIO_client import SocketIO
 
 inputData = {}
 
+SYMBOLS = {
+    'customary'     : ('B', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'),
+    'customary_ext' : ('byte', 'kilo', 'mega', 'giga', 'tera', 'peta', 'exa',
+                       'zetta', 'iotta'),
+    'iec'           : ('Bi', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi', 'Yi'),
+    'iec_ext'       : ('byte', 'kibi', 'mebi', 'gibi', 'tebi', 'pebi', 'exbi',
+                       'zebi', 'yobi'),
+}
 
-def worker(duration):
+def human2bytes(s):
+    """
+    Attempts to guess the string format based on default symbols
+    set and return the corresponding bytes as an integer.
+    When unable to recognize the format ValueError is raised.
+      >>> human2bytes('0 B')
+      0
+      >>> human2bytes('1 K')
+      1024
+      >>> human2bytes('1 M')
+      1048576
+      >>> human2bytes('1 Gi')
+      1073741824
+      >>> human2bytes('1 tera')
+      1099511627776
+      >>> human2bytes('0.5kilo')
+      512
+      >>> human2bytes('0.1  byte')
+      0
+      >>> human2bytes('1 k')  # k is an alias for K
+      1024
+      >>> human2bytes('12 foo')
+      Traceback (most recent call last):
+          ...
+      ValueError: can't interpret '12 foo'
+    """
+    init = s
+    num = ""
+    while s and s[0:1].isdigit() or s[0:1] == '.':
+        num += s[0]
+        s = s[1:]
+    num = float(num)
+    letter = s.strip()
+    for name, sset in SYMBOLS.items():
+        if letter in sset:
+            break
+    else:
+        if letter == 'k':
+            # treat 'k' as an alias for 'K' as per: http://goo.gl/kTQMs
+            sset = SYMBOLS['customary']
+            letter = letter.upper()
+        else:
+            raise ValueError("can't interpret %r" % init)
+    prefix = {sset[0]:1}
+    for i, s in enumerate(sset[1:]):
+        prefix[s] = 1 << (i+1)*10
+    return int(num * prefix[letter])
+
+def worker(duration, memoryPerProcess):
     print("worker starting")
+    print("allocating ",memoryPerProcess,"bytes")
+    allocated='a'*memoryPerProcess
     start = time.perf_counter()
     res = 0
     while True:
@@ -17,10 +76,12 @@ def worker(duration):
         if (now - start) > duration:
             break
     print("worker finished")
+    allocated=None
     return res
 
 
 def waitForProcesses(processes):
+    
     while True:
         isrunning=False
         for p in processes:
@@ -41,10 +102,12 @@ processesGlobal = []
 def run_algo():
     cpu_count = int(inputData.get('cpu', 1))
     duration = inputData.get('duration',10)
+    memory = human2bytes(inputData.get('memory','128Mi'))
+    memoryPerProcess = math.ceil(memory/cpu_count)
     # start the algorithm async
 
     for i in range(cpu_count):
-        p = Process(target=worker, args=(duration,))
+        p = Process(target=worker, args=(duration, memoryPerProcess,))
         processesGlobal.append(p)
         p.start()
 
@@ -101,7 +164,6 @@ def on_exit(*args):
         code = args[0].get('exitCode', 0)
     print('Got exit command. Exiting with code', code)
     sys.exit(code)
-
 
 print('starting')
 socketPort = os.getenv('WORKER_SOCKET_PORT', 3000)
