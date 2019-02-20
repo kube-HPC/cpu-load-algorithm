@@ -168,7 +168,9 @@ def on_exit(*args):
 
 print('starting')
 socketPort = os.getenv('WORKER_SOCKET_PORT', 3000)
-socketIO = SocketIO('http://40.69.222.75/hkube/debug/xxx/socket.io')
+# socketIO = SocketIO('http://40.69.222.75/hkube/debug/xxx/socket.io')
+socketIO = SocketIO('127.0.0.1',socketPort)
+
 
 socketIO.on('connect', on_connect)
 socketIO.on('disconnect', on_disconnect)
